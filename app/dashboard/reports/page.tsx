@@ -31,7 +31,7 @@ export default async function Page(){
   s.from("fittings").select("person_id,status,collected_status").eq("organization_id",p.organization_id),
   s.from("photo_sessions").select("person_id,status").eq("organization_id",p.organization_id),
   s.from("invitations").select("person_id,status").eq("organization_id",p.organization_id).match(eid?{event_id:eid}:{}),
-  s.from("tickets").select("person_id,user_id,seat_id").eq("organization_id",p.organization_id).match(eid?{event_id:eid}:{}),
+  s.from("tickets").select("id,person_id,user_id,seat_id,status").eq("organization_id",p.organization_id).match(eid?{event_id:eid}:{}),
   s.from("seats").select("id,seat_type").eq("organization_id",p.organization_id).match(eid?{event_id:eid}:{}),
   s.from("vip_assignments").select("person_id,seat_id,arrival_status").eq("organization_id",p.organization_id).match(eid?{event_id:eid}:{}),
   s.from("entry_scans").select("ticket_id,scanned_at,result").eq("organization_id",p.organization_id).eq("result","accepted")
