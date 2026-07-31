@@ -1,0 +1,15 @@
+begin;
+alter table public.seating_zones add column if not exists stage_side text not null default 'center' check(stage_side in ('left','center','right'));
+alter table public.people_directory add column if not exists gown_collected_status text not null default 'pending';
+alter table public.people_directory add column if not exists photography_status text not null default 'pending';
+alter table public.people_directory add column if not exists fitting_status text not null default 'pending';
+alter table public.people_directory add column if not exists primary_seat_id uuid references public.seats(id) on delete set null;
+alter table public.vip_assignments add column if not exists updated_at timestamptz not null default now();
+alter table public.event_services add column if not exists updated_at timestamptz not null default now();
+alter table public.fittings add column if not exists updated_at timestamptz not null default now();
+alter table public.photo_sessions add column if not exists updated_at timestamptz not null default now();
+create index if not exists seating_zones_stage_side_idx on public.seating_zones(event_id,stage_side,display_order);
+create index if not exists people_directory_status_idx on public.people_directory(organization_id,registration_status,payment_status);
+create index if not exists tickets_user_event_idx on public.tickets(user_id,event_id);
+notify pgrst,'reload schema';
+commit;

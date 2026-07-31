@@ -1,0 +1,3 @@
+"use server";
+import {cookies} from "next/headers";import {redirect} from "next/navigation";import {createClient} from "@/lib/supabase/server";import type{AppRole}from"@/lib/types";
+export async function switchActiveRole(fd:FormData){const role=String(fd.get("role")||"") as AppRole;const s=await createClient();const{data:{user}}=await s.auth.getUser();if(!user)redirect("/login");const{data}=await s.from("profile_roles").select("role").eq("profile_id",user.id).eq("role",role).maybeSingle();if(!data)redirect("/dashboard?error=Role%20not%20assigned");const c=await cookies();c.set("active_role",role,{httpOnly:true,sameSite:"lax",secure:process.env.NODE_ENV==="production",path:"/"});redirect("/dashboard?success=Role%20switched")}

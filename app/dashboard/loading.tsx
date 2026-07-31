@@ -1,0 +1,1 @@
+export default function DashboardLoading(){return <div className="route-loading" role="status" aria-label="Loading page"><div className="loading-bar"/><div className="loading-grid"><div className="loading-card"/><div className="loading-card"/><div className="loading-card"/></div><div className="loading-bar"/></div>}
