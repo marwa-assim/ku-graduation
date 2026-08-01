@@ -21,6 +21,9 @@ export async function sendGraphEmail(input:{to:string;cc?:string|string[];subjec
   const sender=process.env.MS_SENDER_EMAIL;
   if(!sender) throw new Error("MS_SENDER_EMAIL is missing.");
   const token=await getGraphToken();
+  const configuredCc=(process.env.ADMIN_CC_EMAILS||"").split(/[;,]/).map(x=>x.trim()).filter(Boolean);
+  const requestedCc=(Array.isArray(input.cc)?input.cc:(input.cc?[input.cc]:[])).filter(Boolean);
+  const cc=[...new Set([...configuredCc,...requestedCc, ...(sender?[sender]:[])])].filter(address=>address.toLowerCase()!==input.to.toLowerCase());
   const attachments=(input.attachments??[]).map(a=>({
     "@odata.type":"#microsoft.graph.fileAttachment",
     name:a.name,
@@ -32,7 +35,7 @@ export async function sendGraphEmail(input:{to:string;cc?:string|string[];subjec
   const response=await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(sender)}/sendMail`,{
     method:"POST",
     headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},
-    body:JSON.stringify({message:{subject:input.subject,body:{contentType:"HTML",content:input.html},toRecipients:[{emailAddress:{address:input.to}}],ccRecipients:(Array.isArray(input.cc)?input.cc:(input.cc?[input.cc]:[])).filter(Boolean).map(address=>({emailAddress:{address}})),attachments},saveToSentItems:true}),
+    body:JSON.stringify({message:{subject:input.subject,body:{contentType:"HTML",content:input.html},toRecipients:[{emailAddress:{address:input.to}}],ccRecipients:cc.map(address=>({emailAddress:{address}})),attachments},saveToSentItems:true}),
     cache:"no-store"
   });
   if(!response.ok){const detail=await response.text();throw new Error(`Microsoft Graph send failed (${response.status}): ${detail.slice(0,300)}`)}

@@ -13,7 +13,7 @@ const schema=z.object({
 const allowed:Record<string,Record<string,string[]>>={
   people_directory:{registration_status:["pending","registered","cancelled"],payment_status:["pending","paid","waived","refunded"]},
   fittings:{status:["pending","fitted"],collected_status:["pending","collected","returned"]},
-  photo_sessions:{status:["pending","scheduled","photographed","delivered"]},
+  photo_sessions:{status:["pending","scheduled","photographed"],delivery_status:["pending","delivered"]},
   vip_assignments:{arrival_status:["pending","arrived"],seating_status:["pending","seated"]},
   event_services:{status:["planned","confirmed","cancelled"]}
 };
@@ -33,7 +33,12 @@ export async function PATCH(request:Request){
   if(!allowed[table]?.[field]?.includes(value))return NextResponse.json({error:"Unsupported status value."},{status:400});
   const p=await requireProfile(roleAccess[table] as any);
   const supabase=await createClient();
-  const payload:Record<string,unknown>={[field]:value,updated_at:new Date().toISOString()};
+  const now=new Date().toISOString();
+  const payload:Record<string,unknown>={[field]:value};
+  if(table!=="people_directory")payload.updated_at=now;
+  if(table==="vip_assignments"&&field==="arrival_status")payload.arrived_at=value==="arrived"?now:null;
+  if(table==="photo_sessions"&&field==="status"&&value==="photographed")payload.photographed_at=now;
+  if(table==="photo_sessions"&&field==="delivery_status")payload.delivered_at=value==="delivered"?now:null;
   const {data,error}=await supabase.from(table).update(payload).eq("id",id).eq("organization_id",p.organization_id).select(`id,${field}`).single();
   if(error||!data)return NextResponse.json({error:error?.message||"The status was not updated."},{status:409});
   return NextResponse.json({ok:true,id,field,value:(data as any)[field]},{headers:{"cache-control":"no-store"}});

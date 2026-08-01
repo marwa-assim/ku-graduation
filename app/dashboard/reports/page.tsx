@@ -19,7 +19,7 @@ function group(rows:any[],key:string):AnalyticsDimension[]{
 function metric(key:string,label:string,value:number,total:number):OperationMetric{return{key,label,value,total}}
 
 export default async function Page(){
- const p=await requireProfile(["admin","regcom","finance","land","vip","scanner"]);
+ const p=await requireProfile(["admin","regcom","finance","land","vip","scanner","tailor","photographer"]);
  const s=await createClient();
  const{data:event}=await s.from("events").select("id").eq("organization_id",p.organization_id).order("ceremony_date",{ascending:false}).limit(1).maybeSingle();
  const eid=event?.id;
@@ -96,7 +96,9 @@ export default async function Page(){
   land:[["bookings","Bookings and seats"],["entered_students","Entered students"],["entered_staff","Entered academic staff"],["entered_vip","Entered VIP"],["scans","Entry scans"]],
   vip:[["entered_vip","Entered VIP"],["scans","VIP entry scans"]],
   finance:[["payments","Payment status"],["finance","Finance and revenue"]],
-  scanner:[["entered_students","Entered students"],["entered_staff","Entered academic staff"],["entered_vip","Entered VIP"],["scans","Entry scans"]],
+  scanner:[["entered_students","Entered students"],["entered_staff","Entered academic staff"],["entered_vip","VIP attendance and seating"],["scans","Entry scans"]],
+  tailor:[["fittings","Fitting and collection"]],
+  photographer:[["photography","Photography and delivery"]],
  };
  const exports=exportsByRole[p.role]||[];
  return <>
