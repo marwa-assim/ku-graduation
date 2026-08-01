@@ -7,7 +7,7 @@ export async function createPayment(input:CreatePaymentInput){
  if(!base||!apiKey||!appUrl||!pgCodes.length)throw new Error("Ottu payment gateway is not configured.");
  const endpoint=base.includes("/b/checkout/")?base:`${base}/b/checkout/v1/pymt-txn/`;
  const response=await fetch(endpoint,{method:"POST",headers:{"Content-Type":"application/json","Accept":"application/json","Authorization":`Api-Key ${apiKey}`},body:JSON.stringify({type:"e_commerce",amount:input.amountBhd.toFixed(3),currency_code:"BHD",pg_codes:pgCodes,payment_type:"one_off",order_no:input.bookingId,customer_email:input.customerEmail,customer_id:input.customerId||input.bookingId,customer_first_name:input.customerFirstName,customer_last_name:input.customerLastName,language:"en",shortify_checkout_url:true,generate_qr_code:true,redirect_url:`${appUrl}/dashboard/tickets?payment=return`,webhook_url:`${appUrl}/api/payments/webhook`}),cache:"no-store"});
- const body=await response.json().catch(()=>({}));if(!response.ok)throw new Error(body?.detail||body?.message||body?.error||`Ottu rejected the request (${response.status}).`);
+ const raw=await response.text();let body:any={};try{body=raw?JSON.parse(raw):{}}catch{body={raw}};if(!response.ok)throw new Error(body?.detail||body?.message||body?.error||body?.raw||`Ottu rejected the request (${response.status}).`);
  const checkoutUrl=body.checkout_short_url||body.checkout_url||body.checkout_page_url;if(!checkoutUrl||!body.session_id)throw new Error("Ottu response did not include checkout_url/session_id.");
  return {transactionId:String(body.session_id),checkoutUrl:String(checkoutUrl),state:body.state,orderNo:body.order_no,qrCodeUrl:body.qr_code_url};
 }

@@ -37,7 +37,9 @@ export function SeatGrid({ initialSeats, eventId, canBook }: {
       headers:{ "Content-Type":"application/json" },
       body:JSON.stringify({ eventId, seatIds:selected })
     });
-    const body = await response.json();
+    const raw = await response.text();
+    let body:any = {};
+    try { body = raw ? JSON.parse(raw) : {}; } catch { body = { error: raw || `Server returned ${response.status} without JSON.` }; }
     if (!response.ok) {
       setMessage(body.error ?? "Reservation failed.");
       return;

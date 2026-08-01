@@ -14,7 +14,7 @@ export async function POST(request:Request){
  if(result.free_booking_id){try{await sendBookingConfirmation(result.free_booking_id)}catch(e){console.error("Free-ticket confirmation email failed",e)}}
  if(!result.paid_booking_id)return NextResponse.json({bookingId:result.free_booking_id,freeConfirmed:Number(result.free_count||0),paidHeld:0});
  const payment=await fetch(new URL("/api/payments/create",request.url),{method:"POST",headers:{"Content-Type":"application/json",cookie:request.headers.get("cookie")??""},body:JSON.stringify({bookingId:result.paid_booking_id})});
- const paymentBody=await payment.json();
- if(!payment.ok)return NextResponse.json({...paymentBody,freeConfirmed:Number(result.free_count||0),paidHeld:Number(result.paid_count||0)},{status:payment.status});
+ const rawPayment=await payment.text();let paymentBody:any={};try{paymentBody=rawPayment?JSON.parse(rawPayment):{}}catch{paymentBody={error:rawPayment||"Payment service returned an empty or invalid response."}}
+ if(!payment.ok){await supabase.rpc("release_payment_hold",{p_booking_id:result.paid_booking_id});return NextResponse.json({...paymentBody,freeConfirmed:Number(result.free_count||0),paidHeld:0,paidReleased:true},{status:payment.status});}
  return NextResponse.json({...paymentBody,bookingId:result.paid_booking_id,freeBookingId:result.free_booking_id,freeConfirmed:Number(result.free_count||0),paidHeld:Number(result.paid_count||0)},{status:payment.status});
 }

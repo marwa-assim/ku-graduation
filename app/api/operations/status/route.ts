@@ -13,7 +13,7 @@ const schema=z.object({
 const allowed:Record<string,Record<string,string[]>>={
   people_directory:{registration_status:["pending","registered","cancelled"],payment_status:["pending","paid","waived","refunded"]},
   fittings:{status:["pending","fitted"],collected_status:["pending","collected","returned"]},
-  photo_sessions:{status:["pending","scheduled","photographed"],delivery_status:["pending","delivered"]},
+  photo_sessions:{status:["pending","photographed"],delivery_status:["pending","delivered"]},
   vip_assignments:{arrival_status:["pending","arrived"],seating_status:["pending","seated"]},
   event_services:{status:["planned","confirmed","cancelled"]}
 };
