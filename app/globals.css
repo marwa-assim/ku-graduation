@@ -303,3 +303,51 @@ html{-webkit-text-size-adjust:100%;text-size-adjust:100%;overflow-x:hidden}body{
 
 /* V14.4 authoritative attendance controls */
 .attendance-control{display:flex;align-items:center;gap:.45rem;min-width:150px;flex-wrap:wrap}.attendance-control .status-select{min-width:105px;text-transform:capitalize}.attendance-control small{white-space:nowrap;color:var(--muted)}.attendance-control .field-error{flex-basis:100%;white-space:normal;color:#dc5c5c;font-size:.72rem;line-height:1.25}
+
+/* v14.9 mobile seat details and finance controls */
+.finance-payment-select{min-width:118px!important;width:auto!important;color:var(--text)!important}
+.compact-seat:focus{outline:2px solid var(--gold);outline-offset:2px;z-index:30}
+@media(max-width:760px){
+ .compact-seat>span,.compact-seat>small{position:fixed!important;left:12px!important;right:12px!important;bottom:18px!important;top:auto!important;transform:none!important;max-width:none!important;padding:12px 14px!important;font-size:13px!important;line-height:1.35!important;text-align:center!important;white-space:normal!important;background:#101724!important;border:1px solid var(--gold)!important;color:#fff!important;box-shadow:0 12px 36px #000c!important}
+ .compact-seat:focus>span,.compact-seat:focus-visible>span,.compact-seat:active>span{opacity:1!important}
+ .professional-table .finance-payment-select{min-width:118px!important}
+}
+
+/* v15 final responsive and data-density stabilization */
+:root{--content-gutter:clamp(10px,2vw,24px)}
+.content{min-width:0;width:100%;max-width:100%;padding-inline:var(--content-gutter)}
+.page-head,.toolbar,.actions,.form-grid,.grid-2,.grid-3,.grid-4{min-width:0}
+.card,.modal-card,.editor,.service-details-modal,.ticket-modal{min-width:0;max-width:100%}
+input,select,textarea,button{max-width:100%}
+select{min-height:40px;text-overflow:ellipsis}
+.actions{align-items:center;row-gap:8px}
+.actions .btn{min-height:40px}
+.professional-table{max-width:100%;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable both-edges}
+.professional-table table{min-width:max(100%,760px)}
+.professional-table th,.professional-table td{white-space:nowrap;word-break:normal;overflow-wrap:normal}
+.professional-table td[data-wrap="true"],.professional-table .cell-wrap{white-space:normal;min-width:220px;max-width:360px;line-height:1.45}
+.professional-table select{min-width:145px;width:auto;padding-right:34px}
+.professional-table .status-select{min-width:150px}
+.table-scroll-hint{display:none}
+@media(max-width:900px){
+ .page-head{display:flex;flex-direction:column;align-items:stretch}
+ .page-head .actions,.toolbar{width:100%;display:flex;flex-wrap:wrap}
+ .page-head .actions .btn,.toolbar .btn{flex:1 1 180px;justify-content:center}
+ .grid-4{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+ .professional-table table{min-width:820px}
+ .table-scroll-hint{display:flex;align-items:center;gap:6px;margin:0 0 8px;color:var(--muted);font-size:11px}
+}
+@media(max-width:640px){
+ .content{padding-inline:10px!important}
+ .grid-4,.grid-3,.grid-2{grid-template-columns:1fr!important}
+ .page-head h1{overflow-wrap:anywhere}
+ .page-head .actions,.toolbar{display:grid;grid-template-columns:1fr}
+ .page-head .actions .btn,.toolbar .btn{width:100%}
+ .professional-table{border-radius:10px}
+ .professional-table table{min-width:760px}
+ .professional-table th,.professional-table td{padding:10px 11px}
+ .modal-card,.ticket-modal,.service-details-modal{inset:8px!important;width:calc(100vw - 16px)!important;max-height:calc(100dvh - 16px)!important;overflow:auto}
+ .kpi-row{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+ .kpi strong{font-size:clamp(18px,6vw,26px)}
+}
+@media(max-width:380px){.kpi-row{grid-template-columns:1fr!important}.professional-table table{min-width:720px}}

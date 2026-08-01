@@ -19,17 +19,95 @@ export async function GET(req:NextRequest){
  if(type==="registration")return peopleStatusExport(s,p.organization_id,"registration_status","registration-status-report.csv");
  if(type==="payments")return peopleStatusExport(s,p.organization_id,"payment_status","payment-status-report.csv");
  if(type==="invitations")return invitationExport(s,p.organization_id);
- if(["master","users","finance"].includes(type))return masterExport(s,p.organization_id);
- const specs:Record<string,{table:string;select:string;headers:string[];file:string}>={
-  audit:{table:"audit_log",select:"id,table_name,record_id,operation,actor_id,created_at",headers:["id","table_name","record_id","operation","actor_id","created_at"],file:"audit-trail.csv"},
-  bookings:{table:"bookings",select:"id,event_id,user_id,person_id,status,total_bhd,expires_at,created_at",headers:["id","event_id","user_id","person_id","status","total_bhd","expires_at","created_at"],file:"bookings-report.csv"},
-  tickets:{table:"tickets",select:"id,event_id,user_id,person_id,seat_id,booking_id,status,created_at",headers:["id","event_id","user_id","person_id","seat_id","booking_id","status","created_at"],file:"tickets-report.csv"},
-  services:{table:"event_services",select:"id,event_id,name,provider_name,status,price_bhd,contact_phone,contact_email,service_url,notes",headers:["id","event_id","name","provider_name","status","price_bhd","contact_phone","contact_email","service_url","notes"],file:"services-report.csv"}
- };
- const spec=specs[type];if(!spec)return NextResponse.json({error:"Unsupported report"},{status:400});
- const{data,error}=await s.from(spec.table).select(spec.select).eq("organization_id",p.organization_id);if(error)return NextResponse.json({error:error.message},{status:400});return csv(spec.headers,data??[],spec.file);
+ if(type==="finance")return financeExport(s,p.organization_id);
+ if(type==="tickets")return ticketsReadableExport(s,p.organization_id);
+ if(type==="bookings")return bookingsReadableExport(s,p.organization_id);
+ if(type==="audit")return auditReadableExport(s,p.organization_id);
+ if(type==="services")return servicesReadableExport(s,p.organization_id);
+ if(["master","users"].includes(type))return masterExport(s,p.organization_id);
+ return NextResponse.json({error:"Unsupported report"},{status:400});
 }
 
+
+const shortNumber=(prefix:string,id:any)=>id?`${prefix}-${String(id).replace(/-/g,"").slice(0,8).toUpperCase()}`:"";
+const personMaps=(people:any[])=>{const m=new Map<string,any>();for(const x of people){m.set(String(x.id),x);if(x.profile_id)m.set(String(x.profile_id),x)}return m};
+
+async function ticketsReadableExport(s:any,org:string){
+ const[tq,sq,pq,eq,bq,scq]=await Promise.all([
+  s.from("tickets").select("id,event_id,user_id,person_id,seat_id,booking_id,status,created_at").eq("organization_id",org).order("created_at",{ascending:false}),
+  s.from("seats").select("id,code,label,seat_type,price_bhd").eq("organization_id",org),
+  s.from("people_directory").select("id,profile_id,full_name,reference_number,email,person_type").eq("organization_id",org),
+  s.from("events").select("id,name,ceremony_date,venue").eq("organization_id",org),
+  s.from("bookings").select("id,status,total_bhd,created_at").eq("organization_id",org),
+  s.from("entry_scans").select("ticket_id,result,scanned_at,entry_method").eq("organization_id",org).order("scanned_at",{ascending:false})
+ ]);
+ for(const q of [tq,sq,pq,eq,bq,scq])if(q.error)return NextResponse.json({error:q.error.message},{status:400});
+ const seats=new Map<string,any>((sq.data??[]).map((x:any)=>[String(x.id),x]));
+ const people=personMaps(pq.data??[]);
+ const events=new Map<string,any>((eq.data??[]).map((x:any)=>[String(x.id),x]));
+ const bookings=new Map<string,any>((bq.data??[]).map((x:any)=>[String(x.id),x]));
+ const scans=new Map<string,any>();for(const x of scq.data??[]){if(!scans.has(String(x.ticket_id)))scans.set(String(x.ticket_id),x)}
+ const rows=(tq.data??[]).map((t:any)=>{const seat=seats.get(String(t.seat_id));const person=people.get(String(t.person_id))||people.get(String(t.user_id));const event=events.get(String(t.event_id));const booking=bookings.get(String(t.booking_id));const scan=scans.get(String(t.id));return {
+  ticket_number:shortNumber("TKT",t.id),participant_name:person?.full_name||"Unlinked participant",participant_id:person?.reference_number||"",participant_type:person?.person_type||"",participant_email:person?.email||"",event:event?.name||"",event_date:event?.ceremony_date||"",venue:event?.venue||"",ticket_type:seat?.seat_type||"",seat_number:seat?.label||seat?.code||"",ticket_price_bhd:Number(seat?.price_bhd||0).toFixed(3),booking_number:shortNumber("BKG",t.booking_id),booking_status:booking?.status||"",ticket_status:t.status||"",entry_status:scan?.result==="accepted"?"entered":"pending",entry_date:scan?.result==="accepted"?scan.scanned_at||"":"",entry_method:scan?.result==="accepted"?scan.entry_method||"":"",issued_at:t.created_at||""}});
+ return csv(["ticket_number","participant_name","participant_id","participant_type","participant_email","event","event_date","venue","ticket_type","seat_number","ticket_price_bhd","booking_number","booking_status","ticket_status","entry_status","entry_date","entry_method","issued_at"],rows,"tickets-readable-report.csv");
+}
+
+async function bookingsReadableExport(s:any,org:string){
+ const[bq,bsq,sq,pq,prq,eq,payq]=await Promise.all([
+  s.from("bookings").select("id,event_id,user_id,person_id,status,total_bhd,expires_at,created_at,assigned_by_admin").eq("organization_id",org).order("created_at",{ascending:false}),
+  s.from("booking_seats").select("booking_id,seat_id,price_bhd"),
+  s.from("seats").select("id,code,label,seat_type").eq("organization_id",org),
+  s.from("people_directory").select("id,profile_id,full_name,reference_number,email,person_type").eq("organization_id",org),
+  s.from("profiles").select("id,full_name,email,role").eq("organization_id",org),
+  s.from("events").select("id,name,ceremony_date,venue").eq("organization_id",org),
+  s.from("payments").select("booking_id,provider,provider_transaction_id,amount_bhd,status,created_at").eq("organization_id",org).order("created_at",{ascending:false})
+ ]);
+ for(const q of [bq,bsq,sq,pq,prq,eq,payq])if(q.error)return NextResponse.json({error:q.error.message},{status:400});
+ const seats=new Map<string,any>((sq.data??[]).map((x:any)=>[String(x.id),x]));const people=personMaps(pq.data??[]);const profiles=new Map<string,any>((prq.data??[]).map((x:any)=>[String(x.id),x]));const events=new Map<string,any>((eq.data??[]).map((x:any)=>[String(x.id),x]));
+ const byBooking=new Map<string,any[]>();for(const x of bsq.data??[]){const a=byBooking.get(String(x.booking_id))||[];a.push(x);byBooking.set(String(x.booking_id),a)}
+ const payments=new Map<string,any>();for(const x of payq.data??[]){if(!payments.has(String(x.booking_id)))payments.set(String(x.booking_id),x)}
+ const rows=(bq.data??[]).map((b:any)=>{const person=people.get(String(b.person_id))||people.get(String(b.user_id))||profiles.get(String(b.user_id));const event=events.get(String(b.event_id));const links=byBooking.get(String(b.id))||[];const seatRows=links.map((x:any)=>seats.get(String(x.seat_id))).filter(Boolean);const payment=payments.get(String(b.id));return {booking_number:shortNumber("BKG",b.id),participant_name:person?.full_name||"Unlinked participant",participant_id:person?.reference_number||"",participant_type:person?.person_type||person?.role||"",participant_email:person?.email||"",event:event?.name||"",event_date:event?.ceremony_date||"",venue:event?.venue||"",booking_status:b.status||"",seat_count:seatRows.length,ticket_types:[...new Set(seatRows.map((x:any)=>x.seat_type).filter(Boolean))].join(" | "),seat_numbers:seatRows.map((x:any)=>x.label||x.code).filter(Boolean).join(" | "),total_bhd:Number(b.total_bhd||0).toFixed(3),payment_status:payment?.status||"not_required_or_pending",payment_provider:payment?.provider||"",payment_reference:payment?.provider_transaction_id||"",payment_amount_bhd:payment?Number(payment.amount_bhd||0).toFixed(3):"",assigned_by:b.assigned_by_admin?"Admin / committee":"Participant",hold_expires_at:b.expires_at||"",created_at:b.created_at||""}});
+ return csv(["booking_number","participant_name","participant_id","participant_type","participant_email","event","event_date","venue","booking_status","seat_count","ticket_types","seat_numbers","total_bhd","payment_status","payment_provider","payment_reference","payment_amount_bhd","assigned_by","hold_expires_at","created_at"],rows,"bookings-readable-report.csv");
+}
+
+async function auditReadableExport(s:any,org:string){
+ const[aq,pq,prq,eq,tq,bq,sq]=await Promise.all([
+  s.from("audit_log").select("id,event_id,actor_id,table_name,record_id,operation,action,entity_type,old_data,new_data,created_at").eq("organization_id",org).order("created_at",{ascending:false}),
+  s.from("people_directory").select("id,profile_id,full_name,reference_number,email,person_type").eq("organization_id",org),
+  s.from("profiles").select("id,full_name,email,role").eq("organization_id",org),
+  s.from("events").select("id,name").eq("organization_id",org),
+  s.from("tickets").select("id,person_id,user_id,seat_id,booking_id").eq("organization_id",org),
+  s.from("bookings").select("id,person_id,user_id,event_id").eq("organization_id",org),
+  s.from("seats").select("id,code,label,seat_type").eq("organization_id",org)
+ ]);
+ for(const q of [aq,pq,prq,eq,tq,bq,sq])if(q.error)return NextResponse.json({error:q.error.message},{status:400});
+ const people=personMaps(pq.data??[]),profiles=new Map<string,any>((prq.data??[]).map((x:any)=>[String(x.id),x])),events=new Map<string,any>((eq.data??[]).map((x:any)=>[String(x.id),x])),tickets=new Map<string,any>((tq.data??[]).map((x:any)=>[String(x.id),x])),bookings=new Map<string,any>((bq.data??[]).map((x:any)=>[String(x.id),x])),seats=new Map<string,any>((sq.data??[]).map((x:any)=>[String(x.id),x]));
+ const rows=(aq.data??[]).map((a:any)=>{const data=a.new_data||a.old_data||{};const table=String(a.table_name||a.entity_type||"record");let affected="";let reference="";let event=events.get(String(a.event_id||data.event_id));let person=people.get(String(data.person_id))||people.get(String(data.user_id));if(table==="people_directory"){person=people.get(String(a.record_id))||person;affected=person?.full_name||"Participant";reference=person?.reference_number||""}else if(table==="tickets"){const t=tickets.get(String(a.record_id))||data;person=people.get(String(t.person_id))||people.get(String(t.user_id))||person;const seat=seats.get(String(t.seat_id));affected=`${shortNumber("TKT",a.record_id)}${seat?` · ${seat.label||seat.code}`:""}`;reference=person?.reference_number||""}else if(table==="bookings"){const b=bookings.get(String(a.record_id))||data;person=people.get(String(b.person_id))||people.get(String(b.user_id))||person;event=events.get(String(b.event_id))||event;affected=shortNumber("BKG",a.record_id);reference=person?.reference_number||""}else{affected=data.full_name||data.name||data.item_name||data.reference_number||shortNumber(table.slice(0,3).toUpperCase(),a.record_id);reference=data.reference_number||person?.reference_number||""}const actor=profiles.get(String(a.actor_id));const op=String(a.operation||a.action||"").toLowerCase();return {date:a.created_at||"",action:op,area:table.replaceAll("_"," "),affected_record:affected,participant_name:person?.full_name||"",participant_id:reference,event:event?.name||"",performed_by:actor?.full_name||"System",performed_by_email:actor?.email||"",performed_by_role:actor?.role||"system",change_summary:op==="insert"?"Record created":op==="delete"?"Record deleted":"Record updated"}});
+ return csv(["date","action","area","affected_record","participant_name","participant_id","event","performed_by","performed_by_email","performed_by_role","change_summary"],rows,"audit-trail-readable-report.csv");
+}
+
+async function servicesReadableExport(s:any,org:string){
+ const[sq,eq]=await Promise.all([s.from("event_services").select("event_id,name,provider_name,status,price_bhd,contact_phone,contact_email,service_url,notes").eq("organization_id",org).order("name"),s.from("events").select("id,name").eq("organization_id",org)]);if(sq.error)return NextResponse.json({error:sq.error.message},{status:400});if(eq.error)return NextResponse.json({error:eq.error.message},{status:400});const events=new Map<string,string>((eq.data??[]).map((x:any)=>[String(x.id),x.name]));const rows=(sq.data??[]).map((x:any)=>({event:events.get(String(x.event_id))||"",service:x.name||"",provider:x.provider_name||"",status:x.status||"",price_bhd:Number(x.price_bhd||0).toFixed(3),phone:x.contact_phone||"",email:x.contact_email||"",service_url:x.service_url||"",notes:x.notes||""}));return csv(["event","service","provider","status","price_bhd","phone","email","service_url","notes"],rows,"services-readable-report.csv")}
+
+
+async function financeExport(s:any,org:string){
+ const[eq,pq,tq,sq,xq,aq,cq,dq,prq]=await Promise.all([
+  s.from("events").select("id,name,registration_fee_bhd,paid_ticket_price_bhd,ceremony_date").eq("organization_id",org).order("ceremony_date",{ascending:false}),
+  s.from("people_directory").select("id,profile_id,full_name,reference_number,email,registration_status,payment_status,college_id,degree_level_id,program_id").eq("organization_id",org).eq("person_type","student").order("full_name"),
+  s.from("tickets").select("id,person_id,user_id,seat_id,status,created_at").eq("organization_id",org),
+  s.from("seats").select("id,code,label,seat_type,price_bhd").eq("organization_id",org),
+  s.from("ceremony_expenses").select("id,event_id,item_name,vendor,unit_price_bhd,quantity,total_bhd,receipt_no,receipt_date,completion_date,status,service_details,notes,created_at").eq("organization_id",org).order("created_at",{ascending:false}),
+  s.from("revenue_adjustments").select("id,event_id,person_id,amount_bhd,description,created_at").eq("organization_id",org).order("created_at",{ascending:false}),
+  s.from("colleges").select("id,name").eq("organization_id",org),s.from("degree_levels").select("id,name").eq("organization_id",org),s.from("academic_programs").select("id,name").eq("organization_id",org)
+ ]);
+ const event=(eq.data??[])[0]||{};const sm=new Map<string,any>((sq.data??[]).map((x:any)=>[String(x.id),x]));const cm=new Map<string,string>((cq.data??[]).map((x:any)=>[String(x.id),x.name])),dm=new Map<string,string>((dq.data??[]).map((x:any)=>[String(x.id),x.name])),pm=new Map<string,string>((prq.data??[]).map((x:any)=>[String(x.id),x.name]));
+ const byPerson=new Map<string,any[]>();for(const t of tq.data??[]){for(const k of [t.person_id,t.user_id].filter(Boolean)){const a=byPerson.get(String(k))||[];a.push(t);byPerson.set(String(k),a)}}
+ const rows:any[]=[];
+ for(const st of pq.data??[]){const ts=[...(byPerson.get(String(st.id))||[]),...(st.profile_id?byPerson.get(String(st.profile_id))||[]:[])].filter((t:any)=>t.status!=="cancelled");const ticketRevenue=ts.reduce((a:number,t:any)=>a+Number(sm.get(String(t.seat_id))?.price_bhd||0),0);rows.push({record_type:"student_revenue",event:event.name||"",student_name:st.full_name,student_id:st.reference_number,email:st.email,college:cm.get(String(st.college_id))||"",degree:dm.get(String(st.degree_level_id))||"",program:pm.get(String(st.program_id))||"",registration_status:st.registration_status||"pending",payment_status:st.payment_status||"pending",registration_revenue_bhd:st.payment_status==="paid"?Number(event.registration_fee_bhd||0).toFixed(3):"0.000",ticket_count:ts.length,ticket_revenue_bhd:ticketRevenue.toFixed(3),vendor:"",expense_item:"",expense_status:"",amount_bhd:(Number(st.payment_status==="paid"?event.registration_fee_bhd||0:0)+ticketRevenue).toFixed(3),date:""})}
+ for(const x of xq.data??[])rows.push({record_type:"expense",event:(eq.data??[]).find((e:any)=>e.id===x.event_id)?.name||"",student_name:"",student_id:"",email:"",college:"",degree:"",program:"",registration_status:"",payment_status:"",registration_revenue_bhd:"",ticket_count:"",ticket_revenue_bhd:"",vendor:x.vendor||"",expense_item:x.item_name||"",expense_status:x.status||"pending",amount_bhd:Number(x.total_bhd||0).toFixed(3),date:x.receipt_date||x.created_at||"",receipt_no:x.receipt_no||"",details:x.service_details||x.notes||""});
+ for(const x of aq.data??[])rows.push({record_type:"revenue_adjustment",event:(eq.data??[]).find((e:any)=>e.id===x.event_id)?.name||"",student_name:"",student_id:"",email:"",college:"",degree:"",program:"",registration_status:"",payment_status:"",registration_revenue_bhd:"",ticket_count:"",ticket_revenue_bhd:"",vendor:"",expense_item:x.description||"Adjustment",expense_status:"confirmed",amount_bhd:Number(x.amount_bhd||0).toFixed(3),date:x.created_at||""});
+ return csv(["record_type","event","student_name","student_id","email","college","degree","program","registration_status","payment_status","registration_revenue_bhd","ticket_count","ticket_revenue_bhd","vendor","expense_item","expense_status","amount_bhd","date","receipt_no","details"],rows,"finance-revenue-expenses-and-tickets.csv");
+}
 async function dictionaries(s:any,org:string){
  const[c,d,a]=await Promise.all([s.from("colleges").select("id,name").eq("organization_id",org),s.from("degree_levels").select("id,name").eq("organization_id",org),s.from("academic_programs").select("id,name").eq("organization_id",org)]);
  return {cm:new Map((c.data??[]).map((x:any)=>[String(x.id),x.name])),dm:new Map((d.data??[]).map((x:any)=>[String(x.id),x.name])),am:new Map((a.data??[]).map((x:any)=>[String(x.id),x.name]))};
