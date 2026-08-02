@@ -52,7 +52,7 @@ export async function POST(request:Request){
 
   const payment=await createPayment({bookingId:booking.id,amountBhd:Number(booking.total_bhd),customerEmail:user.email});
   const admin=createAdminClient();
-  const {error:paymentInsertError}=await admin.from("payments").insert({organization_id:event.organization_id,event_id:parsed.data.eventId,booking_id:booking.id,provider:process.env.PAYMENT_PROVIDER??"ottu",provider_transaction_id:payment.transactionId,amount_bhd:booking.total_bhd,status:"pending"});
+  const {error:paymentInsertError}=await admin.from("payments").insert({organization_id:event.organization_id,booking_id:booking.id,provider:process.env.PAYMENT_PROVIDER??"ottu",provider_transaction_id:payment.transactionId,amount_bhd:booking.total_bhd,status:"pending"});
   if(paymentInsertError)throw new Error(paymentInsertError.message);
 
   return NextResponse.json({checkoutUrl:payment.checkoutUrl,bookingId:booking.id,freeBookingId:result.free_booking_id,freeConfirmed:Number(result.free_count||0),paidHeld:Number(result.paid_count||0),amountBhd:Number(booking.total_bhd)});

@@ -376,3 +376,21 @@ select{min-height:40px;text-overflow:ellipsis}
  .ticket-action-grid{grid-template-columns:1fr!important;padding-bottom:max(14px,env(safe-area-inset-bottom))}.ticket-modal-grid{padding-bottom:80px!important}.ticket-actions-panel{overflow:visible!important}.ticket-actions-panel .btn{min-height:48px!important}.ticket-modal{overflow:auto!important}
  .rich-toolbar{grid-column:1/-1}.rich-email-editor{min-height:220px}
 }
+
+/* v17.1 final mobile seating and dialog corrections */
+@media (max-width:760px){
+  .seat-detail-panel{position:static!important;left:auto!important;right:auto!important;bottom:auto!important;top:auto!important;width:100%!important;margin:10px 0 14px!important;z-index:3!important;box-shadow:0 10px 24px rgba(0,0,0,.32)!important}
+  .student-zone{overflow:hidden!important}
+  .student-seat-map{overflow:visible!important;padding:8px 2px 14px!important}
+  .student-seat-row{width:100%!important;min-width:0!important;display:grid!important;grid-template-columns:34px minmax(0,1fr)!important;gap:6px!important}
+  .student-seat-row>div{min-width:0!important;width:100%!important;display:grid!important;grid-template-columns:repeat(var(--student-seat-columns,6),minmax(28px,1fr))!important;gap:7px!important}
+  .student-seat{width:100%!important;max-width:46px!important;height:auto!important;aspect-ratio:1!important;justify-self:center!important}
+  .booking-checkout{position:static!important;bottom:auto!important;margin-top:14px!important}
+  .compact-seat-grid{min-width:0!important;gap:2px!important}
+  .zone{overflow:hidden!important}
+  .compact-seat{min-width:0!important;min-height:16px!important}
+  .compact-seat>span,.compact-seat>small{display:none!important}
+  .service-details-content{width:min(94vw,520px)!important;max-height:86dvh!important;overflow:auto!important}
+  .ticket-action-grid{grid-template-columns:1fr!important;padding-bottom:max(16px,env(safe-area-inset-bottom))!important}
+}
+@media (pointer:coarse){.compact-seat>span,.compact-seat>small{display:none!important}}
