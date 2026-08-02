@@ -3,6 +3,7 @@ import {z} from "zod";
 import {requireProfile} from "@/lib/auth";
 import {createAdminClient} from "@/lib/supabase/admin";
 import {sendGraphEmail} from "@/lib/email";
+import {GET as createTicketImageResponse} from "../image/route";
 
 const schema=z.object({ticketId:z.string().uuid(),personId:z.string().uuid()});
 const esc=(v:any)=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]!));
@@ -22,8 +23,9 @@ export async function POST(req:Request){
   const seat:any=Array.isArray(ticket.seat)?ticket.seat[0]:ticket.seat,event:any=Array.isArray(ticket.event)?ticket.event[0]:ticket.event;
   const title=kind(seat?.seat_type),seatNo=seat?.label||seat?.code||"Unassigned";
   const imageUrl=new URL(`/api/tickets/image?ticketId=${encodeURIComponent(body.ticketId)}&personId=${encodeURIComponent(body.personId)}`,req.url);
-  const imageResponse=await fetch(imageUrl,{headers:{cookie:req.headers.get("cookie")||""},cache:"no-store"});
-  if(!imageResponse.ok){const detail=await imageResponse.json().catch(()=>null);throw new Error(detail?.error||"Could not create the ticket image");}
+  const imageRequest=new Request(imageUrl,{headers:{cookie:req.headers.get("cookie")||""}});
+  const imageResponse=await createTicketImageResponse(imageRequest);
+  if(!imageResponse.ok){const raw=await imageResponse.text();let detail:any=null;try{detail=raw?JSON.parse(raw):null}catch{}throw new Error(detail?.error||raw||"Could not create the ticket image");}
   const png=Buffer.from(await imageResponse.arrayBuffer());
   const html=`<p>Dear ${esc(person.full_name)},</p><p>Your complete <strong>${esc(title)}</strong> is attached as a PNG image.</p><p><strong>ID:</strong> ${esc(person.reference_number||"—")}<br/><strong>Seat:</strong> ${esc(seatNo)}<br/><strong>Date and time:</strong> ${esc(fmt(event?.ceremony_date))}<br/><strong>Venue:</strong> ${esc(event?.venue||event?.venue_address||"—")}</p><p>The QR code is valid for one successful entry scan only.</p>`;
   const {data:adminProfiles}=await admin.from("profiles").select("email").eq("organization_id",profile.organization_id).eq("role","admin");
