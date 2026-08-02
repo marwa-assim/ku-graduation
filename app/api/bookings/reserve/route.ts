@@ -29,7 +29,7 @@ export async function POST(request:Request){
  const {data:{user}}=await supabase.auth.getUser();
  if(!user?.email)return NextResponse.json({error:"Unauthenticated."},{status:401});
 
- const {data:event,error:eventError}=await supabase.from("events").select("student_seat_access_mode,allow_guest_booking").eq("id",parsed.data.eventId).single();
+ const {data:event,error:eventError}=await supabase.from("events").select("organization_id,student_seat_access_mode,allow_guest_booking").eq("id",parsed.data.eventId).single();
  if(eventError||!event)return NextResponse.json({error:"Event not found."},{status:404});
  if(event.student_seat_access_mode!=="book"||event.allow_guest_booking===false)return NextResponse.json({error:"Seat booking is currently view-only. Seats must be assigned by the University."},{status:403});
 
@@ -51,7 +51,8 @@ export async function POST(request:Request){
   if(Number(booking.total_bhd)<=0)throw new Error("The paid ticket amount is zero. Check the event paid-ticket price and booking dates.");
 
   const payment=await createPayment({bookingId:booking.id,amountBhd:Number(booking.total_bhd),customerEmail:user.email});
-  const {error:paymentInsertError}=await supabase.from("payments").insert({booking_id:booking.id,provider:process.env.PAYMENT_PROVIDER??"ottu",provider_transaction_id:payment.transactionId,amount_bhd:booking.total_bhd,status:"pending"});
+  const admin=createAdminClient();
+  const {error:paymentInsertError}=await admin.from("payments").insert({organization_id:event.organization_id,event_id:parsed.data.eventId,booking_id:booking.id,provider:process.env.PAYMENT_PROVIDER??"ottu",provider_transaction_id:payment.transactionId,amount_bhd:booking.total_bhd,status:"pending"});
   if(paymentInsertError)throw new Error(paymentInsertError.message);
 
   return NextResponse.json({checkoutUrl:payment.checkoutUrl,bookingId:booking.id,freeBookingId:result.free_booking_id,freeConfirmed:Number(result.free_count||0),paidHeld:Number(result.paid_count||0),amountBhd:Number(booking.total_bhd)});
