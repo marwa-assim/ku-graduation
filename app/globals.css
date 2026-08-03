@@ -436,3 +436,20 @@ select{min-height:40px;text-overflow:ellipsis}
  .compact-seat:focus>span,.compact-seat:focus-visible>span,.compact-seat:active>span{display:block!important;position:fixed!important;left:12px!important;right:12px!important;bottom:max(12px,env(safe-area-inset-bottom))!important;top:auto!important;transform:none!important;width:auto!important;max-width:none!important;padding:11px 13px!important;font-size:12px!important;line-height:1.4!important;white-space:normal!important;background:#101724!important;border:1px solid var(--gold)!important;border-radius:12px!important;color:#fff!important;box-shadow:0 16px 38px rgba(0,0,0,.64)!important;z-index:3000!important}
 }
 @media(pointer:coarse) and (max-width:760px){.compact-seat>span,.compact-seat>small{display:none!important}.compact-seat:focus>span,.compact-seat:focus-visible>span,.compact-seat:active>span{display:block!important}}
+
+/* v18.2 high-accuracy scanner: clear camera feed + native QR lock-on */
+.production-scanner .scanner-frame:after{display:none!important}
+.production-scanner .scanner-frame video{filter:none!important;opacity:1!important;mix-blend-mode:normal!important;background:#02050a!important}
+.scanner-frame.active{background:#02050a!important}
+.scanner-frame.active .scanner-target{opacity:.8;transition:opacity .18s ease}
+.scanner-frame.locked .scanner-target{opacity:.2}
+.scanner-focus-box{position:absolute;z-index:6;pointer-events:none;border:2px solid #38e889;border-radius:14px;box-shadow:0 0 0 2px rgba(56,232,137,.15),0 0 24px rgba(56,232,137,.55);animation:qrLockPulse .65s ease both}
+.scanner-focus-box>i{position:absolute;width:20px;height:20px;border-color:#d9ffea;border-style:solid}
+.scanner-focus-box>i:nth-child(1){left:-3px;top:-3px;border-width:4px 0 0 4px;border-radius:8px 0 0 0}
+.scanner-focus-box>i:nth-child(2){right:-3px;top:-3px;border-width:4px 4px 0 0;border-radius:0 8px 0 0}
+.scanner-focus-box>i:nth-child(3){left:-3px;bottom:-3px;border-width:0 0 4px 4px;border-radius:0 0 0 8px}
+.scanner-focus-box>i:nth-child(4){right:-3px;bottom:-3px;border-width:0 4px 4px 0;border-radius:0 0 8px 0}
+.scanner-focus-box>b{position:absolute;left:50%;bottom:-31px;transform:translateX(-50%);white-space:nowrap;padding:5px 9px;border-radius:999px;background:#0f7a48;color:#fff;font-size:11px;box-shadow:0 5px 16px rgba(0,0,0,.34)}
+.scanner-engine{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid rgba(56,232,137,.28);border-radius:999px;background:rgba(56,232,137,.08);color:#8af2b9;font-size:11px;font-weight:700}
+@keyframes qrLockPulse{0%{transform:scale(1.15);opacity:.2}65%{transform:scale(.97);opacity:1}100%{transform:scale(1);opacity:1}}
+@media(max-width:640px){.production-scanner .scanner-frame{aspect-ratio:4/5!important;max-height:66dvh!important}.scanner-target{inset:14%!important}.scanner-focus-box>b{bottom:-28px;font-size:10px}.scanner-engine{justify-content:center;width:100%}}
