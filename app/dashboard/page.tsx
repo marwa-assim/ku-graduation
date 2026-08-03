@@ -41,7 +41,7 @@ export default async function DashboardPage(){
   s.from("fittings").select("person_id,status,collected_status").eq("organization_id",p.organization_id),
   s.from("photo_sessions").select("person_id,status").eq("organization_id",p.organization_id),
   s.from("invitations").select("person_id,status,sent_at").eq("organization_id",p.organization_id).match(eid?{event_id:eid}:{}),
-  s.from("tickets").select("id,person_id,user_id,seat_id,status").eq("organization_id",p.organization_id).match(eid?{event_id:eid}:{}),
+  s.from("tickets").select("id,person_id,user_id,seat_id,status,is_extra").eq("organization_id",p.organization_id).match(eid?{event_id:eid}:{}),
   s.from("seats").select("id,code,label,seat_type,is_aisle").eq("organization_id",p.organization_id).match(eid?{event_id:eid}:{}),
   s.from("vip_assignments").select("person_id,seat_id,arrival_status").eq("organization_id",p.organization_id).match(eid?{event_id:eid}:{}),
   s.from("entry_scans").select("ticket_id,scanned_at,result").eq("organization_id",p.organization_id).eq("result","accepted")
@@ -62,7 +62,7 @@ export default async function DashboardPage(){
   const ts=[...uniqueTickets.values()];
   const main=ts.find((t:any)=>["graduate","staff"].includes(t.seat?.seat_type));
   const entry=attendance.personEntryByKey.get(String(x.id))||(x.profile_id?attendance.personEntryByKey.get(String(x.profile_id)):undefined);
-  return {...x,college_name:cm.get(x.college_id)||"Unassigned",degree_name:dm.get(x.degree_level_id)||"Unassigned",program_name:am.get(x.program_id)||"Unassigned",graduate_seat:main?visibleSeatLabel(main.seat):"",free_guest_count:ts.filter((t:any)=>t.seat?.seat_type==="free_guest").length,paid_guest_count:ts.filter((t:any)=>t.seat?.seat_type==="paid_guest").length,fitting_status:(fm.get(x.id)as any)?.status||"pending",collected_status:(fm.get(x.id)as any)?.collected_status||"pending",photo_status:(pm.get(x.id)as any)?.status||"pending",invitation_status:(im.get(x.id)as any)?.status||x.invitation_status||"pending",arrival_status:entry?"entered":"pending",arrived_at:entry?.scannedAt||null};
+  return {...x,college_name:cm.get(x.college_id)||"Unassigned",degree_name:dm.get(x.degree_level_id)||"Unassigned",program_name:am.get(x.program_id)||"Unassigned",graduate_seat:main?visibleSeatLabel(main.seat):"",free_guest_count:ts.filter((t:any)=>t.seat?.seat_type==="free_guest").length,paid_guest_count:ts.filter((t:any)=>t.seat?.seat_type==="paid_guest").length,extra_paid_count:ts.filter((t:any)=>t.seat?.seat_type==="paid_guest"&&t.is_extra).length,fitting_status:(fm.get(x.id)as any)?.status||"pending",collected_status:(fm.get(x.id)as any)?.collected_status||"pending",photo_status:(pm.get(x.id)as any)?.status||"pending",invitation_status:(im.get(x.id)as any)?.status||x.invitation_status||"pending",arrival_status:entry?"entered":"pending",arrived_at:entry?.scannedAt||null};
  });
  const students=rows.filter(x=>x.person_type==="student");
  const staff=rows.filter(x=>x.person_type==="academic_staff"&&(!x.role||x.role==="academic_staff"));
@@ -80,6 +80,7 @@ export default async function DashboardPage(){
  const studentAssigned=students.filter(x=>x.graduate_seat).length;
  const enteredStudents=students.filter(x=>x.arrival_status==="entered").length;
  const enteredStaff=staff.filter(x=>x.arrival_status==="entered").length;
+ const extraTickets=(tq.data??[]).filter((t:any)=>t.status==="valid"&&t.is_extra).length;
  const guestTotal=attendance.guestTotal;
  const enteredGuests=attendance.guestEntered;
  const enteredVip=Math.max(vips.filter(x=>x.arrival_status==="entered").length,(vq.data??[]).filter((x:any)=>["entered","arrived"].includes(x.arrival_status)).length);
@@ -111,6 +112,7 @@ export default async function DashboardPage(){
  const guestMetrics=[
   metric("total","Total guest tickets",guestTotal,guestTotal),
   metric("entered","Entered guests",enteredGuests,guestTotal),
+  metric("extra","Extra paid tickets",extraTickets,Math.max(extraTickets,guestTotal)),
  ];
  const vipMetrics=[
   metric("vip_total","Total VIP",vipTotal,vipTotal),
@@ -131,10 +133,114 @@ export default async function DashboardPage(){
  else if(p.role==="tailor") groups=[{...allGroups[0],metrics:studentMetrics.filter(x=>["total","fitted","collected"].includes(x.key))},{...allGroups[1],metrics:staffMetrics.filter(x=>["total","fitted","collected"].includes(x.key))}];
  else if(p.role==="photographer") groups=[{...allGroups[0],metrics:studentMetrics.filter(x=>["total","photographed"].includes(x.key))},{...allGroups[1],metrics:staffMetrics.filter(x=>["total","photographed"].includes(x.key))}];
  else {
-  const own=rows.find((x:any)=>x.profile_id===p.id||x.email===p.email);
-  if(p.role==="academic_staff") groups=[{key:"staff",title:"My academic staff status",subtitle:"Your personal ceremony readiness.",metrics:[metric("assigned","Seat assigned",own?.graduate_seat?1:0,1),metric("entered","Entered",own?.arrival_status==="entered"?1:0,1),metric("fitted","Fitted",own?.fitting_status==="fitted"?1:0,1),metric("collected","Collected",own?.collected_status==="collected"?1:0,1),metric("photographed","Photographed",["photographed","delivered"].includes(own?.photo_status)?1:0,1)]}];
-  else groups=[{key:"students",title:"My student status",subtitle:"Your personal graduation readiness.",metrics:[metric("registered","Registered",own?.registration_status==="registered"?1:0,1),metric("paid","Paid",own?.payment_status==="paid"?1:0,1),metric("assigned","Seat assigned",own?.graduate_seat?1:0,1),metric("entered","Entered",own?.arrival_status==="entered"?1:0,1),metric("fitted","Fitted",own?.fitting_status==="fitted"?1:0,1),metric("collected","Collected",own?.collected_status==="collected"?1:0,1),metric("photographed","Photographed",["photographed","delivered"].includes(own?.photo_status)?1:0,1)]}];
- }
+  const own = rows.find(
+    (item: any) => item.profile_id === p.id || item.email === p.email
+  );
+
+  if (p.role === "academic_staff") {
+    groups = [
+      {
+        key: "staff",
+        title: "My academic staff status",
+        subtitle: "Your personal ceremony readiness.",
+        metrics: [
+          metric(
+            "assigned",
+            "Seat assigned",
+            own?.graduate_seat ? 1 : 0,
+            1
+          ),
+          metric(
+            "entered",
+            "Entered",
+            own?.arrival_status === "entered" ? 1 : 0,
+            1
+          ),
+          metric(
+            "fitted",
+            "Fitted",
+            own?.fitting_status === "fitted" ? 1 : 0,
+            1
+          ),
+          metric(
+            "collected",
+            "Collected",
+            own?.collected_status === "collected" ? 1 : 0,
+            1
+          ),
+          metric(
+            "photographed",
+            "Photographed",
+            ["photographed", "delivered"].includes(own?.photo_status)
+              ? 1
+              : 0,
+            1
+          ),
+        ],
+      },
+    ];
+  } else {
+    groups = [
+      {
+        key: "students",
+        title: "My student status",
+        subtitle: "Your personal graduation readiness.",
+        metrics: [
+          metric(
+            "registered",
+            "Registered",
+            own?.registration_status === "registered" ? 1 : 0,
+            1
+          ),
+          metric(
+            "paid",
+            "Paid",
+            own?.payment_status === "paid" ? 1 : 0,
+            1
+          ),
+          metric(
+            "assigned",
+            "Seat assigned",
+            own?.graduate_seat ? 1 : 0,
+            1
+          ),
+          metric(
+            "entered",
+            "Entered",
+            own?.arrival_status === "entered" ? 1 : 0,
+            1
+          ),
+          metric(
+            "fitted",
+            "Fitted",
+            own?.fitting_status === "fitted" ? 1 : 0,
+            1
+          ),
+          metric(
+            "collected",
+            "Collected",
+            own?.collected_status === "collected" ? 1 : 0,
+            1
+          ),
+          metric(
+            "photographed",
+            "Photographed",
+            ["photographed", "delivered"].includes(own?.photo_status)
+              ? 1
+              : 0,
+            1
+          ),
+          metric(
+            "extra",
+            "Extra paid tickets",
+            own?.extra_paid_count ?? 0,
+            Math.max(1, own?.extra_paid_count ?? 0)
+          ),
+        ],
+      },
+    ];
+  }
+}
 
  const canSeeRegisters=["admin","regcom","land","scanner"].includes(p.role);
  const canSeeStudentAnalytics=["admin","regcom","land"].includes(p.role);
