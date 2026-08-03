@@ -453,3 +453,19 @@ select{min-height:40px;text-overflow:ellipsis}
 .scanner-engine{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid rgba(56,232,137,.28);border-radius:999px;background:rgba(56,232,137,.08);color:#8af2b9;font-size:11px;font-weight:700}
 @keyframes qrLockPulse{0%{transform:scale(1.15);opacity:.2}65%{transform:scale(.97);opacity:1}100%{transform:scale(1);opacity:1}}
 @media(max-width:640px){.production-scanner .scanner-frame{aspect-ratio:4/5!important;max-height:66dvh!important}.scanner-target{inset:14%!important}.scanner-focus-box>b{bottom:-28px;font-size:10px}.scanner-engine{justify-content:center;width:100%}}
+
+
+/* v19 final production polish */
+.personal-ticket-image-shell{margin:14px 0;border-radius:16px;padding:12px;background:linear-gradient(145deg,#0a101a,#18243a);border:1px solid rgba(212,168,67,.28);overflow:hidden}
+.personal-ticket-image{display:block;width:100%;height:auto;max-height:640px;object-fit:contain;border-radius:10px;background:#fff}
+.compact-ticket-chip-label{display:block;width:100%;font-size:10px;line-height:1.2;font-weight:900;color:var(--gold);letter-spacing:.02em;text-align:left;margin-bottom:4px}
+@media(max-width:760px){
+ .personal-ticket-grid{grid-template-columns:1fr!important}
+ .personal-ticket-card{padding:14px!important;border-radius:16px!important}
+ .personal-ticket-image-shell{padding:7px;margin:12px 0}
+ .personal-ticket-actions{display:grid!important;grid-template-columns:1fr!important;gap:9px!important}
+ .personal-ticket-actions .btn,.personal-ticket-actions .ticket-image-actions,.personal-ticket-actions button{width:100%!important;max-width:none!important}
+ .student-seat-map{overflow-x:auto!important;overflow-y:visible!important;-webkit-overflow-scrolling:touch;padding-bottom:18px!important}
+ .student-seat-row{display:flex!important;flex-wrap:nowrap!important;min-width:max-content!important}
+ .student-seat-row>div{display:flex!important;flex-wrap:nowrap!important}
+}

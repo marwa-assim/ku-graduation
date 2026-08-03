@@ -1,6 +1,6 @@
 {
   "name": "ku-graduation-platform",
-  "version": "2.2.1",
+  "version": "2.1.9",
   "private": true,
   "scripts": {
     "dev": "next dev",

@@ -45,7 +45,7 @@ export function ScannerClient(){
   const normalized=value.trim();
   if(!normalized||busyRef.current)return;
   const now=Date.now();
-  if(lastValueRef.current===normalized&&now-lastScanAtRef.current<4200)return;
+  if(lastValueRef.current===normalized&&now-lastScanAtRef.current<2200)return;
   lastValueRef.current=normalized;lastScanAtRef.current=now;busyRef.current=true;setBusy(true);setStatus("QR recognized - validating ticket…");setDetected(x=>x+1);
   if(clearResultRef.current)clearTimeout(clearResultRef.current);
   let next:ScanResult;
@@ -63,7 +63,7 @@ export function ScannerClient(){
    setStatus(response.ok?"Ready for the next QR code":"Ready to scan again");
   }catch(e:any){const message=String(e?.message||"Invalid QR code.");const already=/already|used|duplicate/i.test(message);next={ok:false,title:already?"Already scanned":"Entry rejected",text:message,raw:normalized};setStatus("Ready to scan again")}
   finally{busyRef.current=false;setBusy(false)}
-  setResult(next);setHistory(items=>[{...next,id:crypto.randomUUID(),scannedAt:new Date().toISOString()},...items].slice(0,8));playFeedback(next.ok);clearResultRef.current=setTimeout(()=>setResult(null),6200);
+  setResult(next);setHistory(items=>[{...next,id:crypto.randomUUID(),scannedAt:new Date().toISOString()},...items].slice(0,8));playFeedback(next.ok);clearResultRef.current=setTimeout(()=>setResult(null),2000);
  },[playFeedback]);
 
  const stopDetectionLoop=useCallback(()=>{
