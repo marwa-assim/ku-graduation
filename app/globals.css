@@ -698,3 +698,99 @@ select{min-height:40px;text-overflow:ellipsis}
   .invitation-student-view .invite-fields { margin:8px 0 !important; gap:5px !important; }
   .invitation-student-view .invite-footer { font-size:clamp(8px,2.2vw,12px) !important; }
 }
+
+/* v20.2 final map tooltip and edit-dialog stabilization — presentation only */
+/* The legacy per-seat text tooltip must never render; GlobalSeatTooltip is the only tooltip. */
+.compact-seat > span,
+.compact-seat > small,
+.compact-seat:hover > span,
+.compact-seat:focus > span,
+.compact-seat:focus-visible > span,
+.compact-seat:active > span {
+  display:none !important;
+}
+
+@media (max-width:760px) {
+  /* Preserve three complete graduate sections and scroll the map canvas horizontally. */
+  .venue-map > .stage-layout {
+    min-width:1320px !important;
+    width:1320px !important;
+    grid-template-columns:repeat(3, 420px) !important;
+    gap:20px !important;
+    align-items:start !important;
+  }
+  .stage-layout .stage-column {
+    width:420px !important;
+    min-width:420px !important;
+    max-width:420px !important;
+    overflow:hidden !important;
+  }
+  .stage-layout .zone {
+    width:100% !important;
+    min-width:0 !important;
+    max-width:100% !important;
+    overflow:hidden !important;
+  }
+  .stage-layout .compact-seat-grid {
+    width:100% !important;
+    min-width:0 !important;
+    gap:8px !important;
+  }
+  .stage-layout .compact-seat {
+    width:34px !important;
+    min-width:34px !important;
+    max-width:34px !important;
+    height:34px !important;
+  }
+
+  /* Keep the single global tooltip close to the selected seat and readable. */
+  .global-seat-tooltip {
+    width:min(250px,calc(100vw - 24px)) !important;
+    min-width:190px !important;
+    max-width:250px !important;
+    writing-mode:horizontal-tb !important;
+    word-break:normal !important;
+    overflow-wrap:normal !important;
+  }
+
+  /* Mobile edit dialogs stay fully inside the visible viewport, including safe areas. */
+  .modal-backdrop {
+    display:flex !important;
+    align-items:flex-start !important;
+    justify-content:center !important;
+    overflow:auto !important;
+    padding:max(10px,env(safe-area-inset-top)) 8px max(10px,env(safe-area-inset-bottom)) !important;
+  }
+  .modal-card,
+  .modal-card.modal-wide,
+  .service-details-modal {
+    position:relative !important;
+    inset:auto !important;
+    top:auto !important;
+    left:auto !important;
+    transform:none !important;
+    width:100% !important;
+    max-width:760px !important;
+    max-height:calc(100dvh - max(20px,env(safe-area-inset-top)) - max(20px,env(safe-area-inset-bottom))) !important;
+    margin:0 !important;
+    overflow:auto !important;
+    overscroll-behavior:contain !important;
+    border-radius:16px !important;
+  }
+  .modal-card > .row-between {
+    position:sticky !important;
+    top:0 !important;
+    z-index:5 !important;
+    margin:-1px -1px 10px !important;
+    padding:4px 0 10px !important;
+    background:var(--surface) !important;
+  }
+  .modal-card .form-grid {
+    grid-template-columns:1fr !important;
+    min-width:0 !important;
+  }
+  .modal-card .span-2,
+  .modal-card .span-3 {
+    grid-column:auto !important;
+  }
+}
