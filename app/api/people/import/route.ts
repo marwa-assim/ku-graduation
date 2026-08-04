@@ -192,17 +192,73 @@ export async function POST(req: NextRequest) {
     // Prevent duplicate rows inside the same CSV file.
     const seenEmails = new Set<string>();
     const seenReferences = new Set<string>();
+    
+    const existingDirectoryQuery = await admin
+  .from("people_directory")
+  .select("id,profile_id,email,reference_number")
+  .eq("organization_id", profile.organization_id);
+
+if (existingDirectoryQuery.error) {
+  throw new Error(existingDirectoryQuery.error.message);
+}
+
+type ExistingPerson = {
+  id: string;
+  profile_id: string | null;
+  email: string | null;
+  reference_number: string | null;
+};
+
+const existingByEmail = new Map<string, ExistingPerson>();
+const existingByReference = new Map<string, ExistingPerson>();
+
+for (const person of (existingDirectoryQuery.data ?? []) as ExistingPerson[]) {
+  const storedEmail = String(person.email ?? "").trim().toLowerCase();
+  const storedReference = String(person.reference_number ?? "").trim();
+
+  if (storedEmail) {
+    existingByEmail.set(storedEmail, person);
+  }
+
+  if (storedReference) {
+    existingByReference.set(storedReference, person);
+  }
+}
+
+    
+
 
     for (const row of rows as any[]) {
-      const rowNumber = Number(row._row);
-      const email = normalizeEmail(row.email);
-      const reference = buildReference(
-        row.person_type,
-        row.reference_number,
-        rowNumber
-      );
 
-      if (!row.full_name) {
+  const rowNumber = Number(row._row);
+
+  const email = normalizeEmail(row.email);
+
+  const reference = buildReference(
+    row.person_type,
+    row.reference_number,
+    rowNumber
+  );
+
+  // Skip duplicate rows inside the same CSV
+  if (email && seenEmails.has(email)) {
+    skipped++;
+    continue;
+  }
+
+  if (seenReferences.has(reference)) {
+    skipped++;
+    continue;
+  }
+
+  // Remember this row so later duplicates are skipped
+  if (email) {
+    seenEmails.add(email);
+  }
+
+  seenReferences.add(reference);
+
+  if (!row.full_name) {
         throw new Error(`Row ${rowNumber}: full_name is required`);
       }
 
@@ -284,30 +340,33 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Match an existing directory record by reference OR email.
-      let existingQuery = admin
-        .from("people_directory")
-        .select("id,profile_id,email,reference_number")
-        .eq("organization_id", profile.organization_id)
-        .eq("reference_number", reference)
-        .maybeSingle();
+      const existingFromEmail = email
+  ? existingByEmail.get(email)
+  : undefined;
 
-      let existing = await existingQuery;
+const existingFromReference =
+  existingByReference.get(reference);
 
-      if (!existing.data && email) {
-        existing = await admin
-          .from("people_directory")
-          .select("id,profile_id,email,reference_number")
-          .eq("organization_id", profile.organization_id)
-          .ilike("email", email)
-          .maybeSingle();
-      }
+if (
+  existingFromEmail &&
+  existingFromReference &&
+  existingFromEmail.id !== existingFromReference.id
+) {
+  throw new Error(
+    `Row ${rowNumber}: email '${email}' belongs to reference ` +
+      `'${existingFromEmail.reference_number}', while reference ` +
+      `'${reference}' belongs to another person. Correct the CSV or existing record.`
+  );
+}
 
-      if (existing.error) {
-        throw new Error(`Row ${rowNumber}: ${existing.error.message}`);
-      }
+const existingPerson =
+  existingFromEmail ??
+  existingFromReference ??
+  null;
 
-      let profileId: string | null = existing.data?.profile_id ?? null;
+let profileId: string | null =
+  existingPerson?.profile_id ?? null;
+
 
       if (isYes(row.create_login)) {
         if (!email) {
@@ -403,32 +462,60 @@ export async function POST(req: NextRequest) {
         active: true,
       };
 
-      if (existing.data) {
-        const update = await admin
-          .from("people_directory")
-          .update(payload)
-          .eq("id", existing.data.id);
+      let savedPerson: ExistingPerson;
 
-        if (update.error) {
-          throw new Error(
-            `Row ${rowNumber}: ${update.error.message}`
-          );
-        }
+if (existingPerson) {
+  const update = await admin
+    .from("people_directory")
+    .update(payload)
+    .eq("id", existingPerson.id)
+    .select("id,profile_id,email,reference_number")
+    .single();
 
-        updated += 1;
-      } else {
-        const insert = await admin
-          .from("people_directory")
-          .insert(payload);
+  if (update.error) {
+    throw new Error(
+      `Row ${rowNumber}: ${update.error.message}`
+    );
+  }
 
-        if (insert.error) {
-          throw new Error(
-            `Row ${rowNumber}: ${insert.error.message}`
-          );
-        }
+  savedPerson = update.data as ExistingPerson;
+  updated += 1;
+} else {
+  const insert = await admin
+    .from("people_directory")
+    .insert(payload)
+    .select("id,profile_id,email,reference_number")
+    .single();
 
-        inserted += 1;
-      }
+  if (insert.error) {
+    throw new Error(
+      `Row ${rowNumber}: ${insert.error.message}`
+    );
+  }
+
+  savedPerson = insert.data as ExistingPerson;
+  inserted += 1;
+}
+
+/*
+ * Keep the in-memory indexes synchronized so duplicate rows later
+ * in the same CSV are updated instead of inserted.
+ */
+const savedEmail = String(savedPerson.email ?? "")
+  .trim()
+  .toLowerCase();
+
+const savedReference = String(
+  savedPerson.reference_number ?? ""
+).trim();
+
+if (savedEmail) {
+  existingByEmail.set(savedEmail, savedPerson);
+}
+
+if (savedReference) {
+  existingByReference.set(savedReference, savedPerson);
+}
 
       if (profileId) {
         const allRoles = [
