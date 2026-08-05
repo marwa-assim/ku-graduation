@@ -23,31 +23,42 @@ const VALID_TYPES = [
   "vip",
 ];
 
+type ExistingPerson = {
+  id: string;
+  profile_id: string | null;
+  email: string | null;
+  reference_number: string | null;
+};
+
+type CsvRow = Record<string, string | number> & {
+  _row: number;
+};
+
 function parseCsvLine(line: string): string[] {
-  const out: string[] = [];
+  const output: string[] = [];
   let quoted = false;
   let value = "";
 
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
 
-    if (char === '"') {
-      if (quoted && line[i + 1] === '"') {
+    if (character === '"') {
+      if (quoted && line[index + 1] === '"') {
         value += '"';
-        i += 1;
+        index += 1;
       } else {
         quoted = !quoted;
       }
-    } else if (char === "," && !quoted) {
-      out.push(value.trim());
+    } else if (character === "," && !quoted) {
+      output.push(value.trim());
       value = "";
     } else {
-      value += char;
+      value += character;
     }
   }
 
-  out.push(value.trim());
-  return out;
+  output.push(value.trim());
+  return output;
 }
 
 function isYes(value: unknown): boolean {
@@ -61,12 +72,16 @@ function normalizeEmail(value: unknown): string | null {
   return email || null;
 }
 
+function normalizeText(value: unknown): string {
+  return String(value ?? "").trim();
+}
+
 function buildReference(
   personType: string,
   value: unknown,
   rowNumber: number
 ): string {
-  const reference = String(value ?? "").trim();
+  const reference = normalizeText(value);
 
   if (reference) return reference;
 
@@ -79,11 +94,41 @@ function buildReference(
   return `USR-${Date.now().toString(36).toUpperCase()}-${rowNumber}`;
 }
 
+async function findAuthUserByEmail(
+  admin: ReturnType<typeof createAdminClient>,
+  email: string
+): Promise<any | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const perPage = 1000;
+
+  for (let page = 1; page <= 20; page += 1) {
+    const result = await admin.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+
+    if (result.error) {
+      throw result.error;
+    }
+
+    const users = (result.data.users ?? []) as any[];
+    const match = users.find(
+      (user: any) =>
+        String(user.email ?? "").trim().toLowerCase() === normalizedEmail
+    );
+
+    if (match) return match;
+    if (users.length < perPage) break;
+  }
+
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const profile = await requireProfile(["admin", "regcom", "vip"]);
-    const form = await req.formData();
-    const file = form.get("file");
+    const formData = await req.formData();
+    const file = formData.get("file");
 
     if (!(file instanceof File)) {
       return NextResponse.json(
@@ -105,18 +150,18 @@ export async function POST(req: NextRequest) {
     }
 
     const headers = parseCsvLine(lines[0]).map((header) =>
-      header.toLowerCase()
+      header.trim().toLowerCase()
     );
 
-    for (const required of [
+    for (const requiredColumn of [
       "full_name",
       "email",
       "person_type",
       "role",
     ]) {
-      if (!headers.includes(required)) {
+      if (!headers.includes(requiredColumn)) {
         return NextResponse.json(
-          { error: `Missing required column: ${required}` },
+          { error: `Missing required column: ${requiredColumn}` },
           { status: 400 }
         );
       }
@@ -137,20 +182,31 @@ export async function POST(req: NextRequest) {
       )
       .map((line, index) => {
         const values = parseCsvLine(line);
-        const row: Record<string, string | number> = {};
+        const row: CsvRow = { _row: index + 2 };
 
         headers.forEach((header, columnIndex) => {
           row[header] = values[columnIndex]?.trim() || "";
         });
 
-        row._row = index + 2;
         return row;
       })
       .filter((row) => row.full_name || row.email);
 
+    if (rows.length === 0) {
+      return NextResponse.json(
+        { error: "The CSV contains no valid user rows." },
+        { status: 400 }
+      );
+    }
+
     const admin = createAdminClient();
 
-    const [collegeQuery, degreeQuery, programQuery] = await Promise.all([
+    const [
+      collegeQuery,
+      degreeQuery,
+      programQuery,
+      existingDirectoryQuery,
+    ] = await Promise.all([
       admin
         .from("colleges")
         .select("id,name")
@@ -163,20 +219,31 @@ export async function POST(req: NextRequest) {
         .from("academic_programs")
         .select("id,name,college_id,degree_level_id")
         .eq("organization_id", profile.organization_id),
+      admin
+        .from("people_directory")
+        .select("id,profile_id,email,reference_number")
+        .eq("organization_id", profile.organization_id),
     ]);
 
-    if (collegeQuery.error || degreeQuery.error || programQuery.error) {
+    if (
+      collegeQuery.error ||
+      degreeQuery.error ||
+      programQuery.error ||
+      existingDirectoryQuery.error
+    ) {
       throw new Error(
         collegeQuery.error?.message ||
           degreeQuery.error?.message ||
-          programQuery.error?.message
+          programQuery.error?.message ||
+          existingDirectoryQuery.error?.message ||
+          "Unable to load import reference data."
       );
     }
 
     const byName = (items: any[]) =>
       new Map(
         items.map((item) => [
-          String(item.name).trim().toLowerCase(),
+          String(item.name ?? "").trim().toLowerCase(),
           item,
         ])
       );
@@ -185,383 +252,309 @@ export async function POST(req: NextRequest) {
     const degreeMap = byName(degreeQuery.data || []);
     const programMap = byName(programQuery.data || []);
 
+    const existingByEmail = new Map<string, ExistingPerson>();
+    const existingByReference = new Map<string, ExistingPerson>();
+
+    for (const person of (
+      existingDirectoryQuery.data ?? []
+    ) as ExistingPerson[]) {
+      const storedEmail = normalizeEmail(person.email);
+      const storedReference = normalizeText(person.reference_number);
+
+      if (storedEmail) existingByEmail.set(storedEmail, person);
+      if (storedReference) {
+        existingByReference.set(storedReference, person);
+      }
+    }
+
+    const seenEmails = new Set<string>();
+    const seenReferences = new Set<string>();
+
     let inserted = 0;
     let updated = 0;
     let skipped = 0;
 
-    // Prevent duplicate rows inside the same CSV file.
-    const seenEmails = new Set<string>();
-    const seenReferences = new Set<string>();
-    
-    const existingDirectoryQuery = await admin
-  .from("people_directory")
-  .select("id,profile_id,email,reference_number")
-  .eq("organization_id", profile.organization_id);
+    const rowErrors: Array<{ row: number; message: string }> = [];
 
-if (existingDirectoryQuery.error) {
-  throw new Error(existingDirectoryQuery.error.message);
-}
+    for (const row of rows) {
+      const rowNumber = Number(row._row);
 
-type ExistingPerson = {
-  id: string;
-  profile_id: string | null;
-  email: string | null;
-  reference_number: string | null;
-};
-
-const existingByEmail = new Map<string, ExistingPerson>();
-const existingByReference = new Map<string, ExistingPerson>();
-
-for (const person of (existingDirectoryQuery.data ?? []) as ExistingPerson[]) {
-  const storedEmail = String(person.email ?? "").trim().toLowerCase();
-  const storedReference = String(person.reference_number ?? "").trim();
-
-  if (storedEmail) {
-    existingByEmail.set(storedEmail, person);
-  }
-
-  if (storedReference) {
-    existingByReference.set(storedReference, person);
-  }
-}
-
-    
-
-
-    for (const row of rows as any[]) {
-
-  const rowNumber = Number(row._row);
-
-  const email = normalizeEmail(row.email);
-
-  const reference = buildReference(
-    row.person_type,
-    row.reference_number,
-    rowNumber
-  );
-
-  // Skip duplicate rows inside the same CSV
-  if (email && seenEmails.has(email)) {
-    skipped++;
-    continue;
-  }
-
-  if (seenReferences.has(reference)) {
-    skipped++;
-    continue;
-  }
-
-  // Remember this row so later duplicates are skipped
-  if (email) {
-    seenEmails.add(email);
-  }
-
-  seenReferences.add(reference);
-
-  if (!row.full_name) {
-        throw new Error(`Row ${rowNumber}: full_name is required`);
-      }
-
-      if (!VALID_TYPES.includes(row.person_type)) {
-        throw new Error(
-          `Row ${rowNumber}: invalid person_type '${row.person_type}'`
+      try {
+        const fullName = normalizeText(row.full_name);
+        const personType = normalizeText(row.person_type).toLowerCase();
+        const primaryRole = normalizeText(row.role).toLowerCase();
+        const email = normalizeEmail(row.email);
+        const reference = buildReference(
+          personType,
+          row.reference_number,
+          rowNumber
         );
-      }
 
-      if (!VALID_ROLES.includes(row.role)) {
-        throw new Error(
-          `Row ${rowNumber}: invalid role '${row.role}'`
-        );
-      }
-
-      if (email && seenEmails.has(email)) {
-        skipped += 1;
-        continue;
-      }
-
-      if (seenReferences.has(reference)) {
-        skipped += 1;
-        continue;
-      }
-
-      if (email) seenEmails.add(email);
-      seenReferences.add(reference);
-
-      const additionalRoles = String(row.additional_roles || "")
-        .split(/[|;]/)
-        .map((role) => role.trim())
-        .filter(Boolean);
-
-      for (const role of additionalRoles) {
-        if (!VALID_ROLES.includes(role)) {
-          throw new Error(
-            `Row ${rowNumber}: invalid additional role '${role}'`
-          );
-        }
-      }
-
-      const college = row.college
-        ? collegeMap.get(String(row.college).toLowerCase())
-        : null;
-      const degree = row.degree
-        ? degreeMap.get(String(row.degree).toLowerCase())
-        : null;
-      const program = row.program
-        ? programMap.get(String(row.program).toLowerCase())
-        : null;
-
-      if (row.college && !college) {
-        throw new Error(
-          `Row ${rowNumber}: college '${row.college}' does not match Settings`
-        );
-      }
-
-      if (row.degree && !degree) {
-        throw new Error(
-          `Row ${rowNumber}: degree '${row.degree}' does not match Settings`
-        );
-      }
-
-      if (row.program && !program) {
-        throw new Error(
-          `Row ${rowNumber}: program '${row.program}' does not match Settings`
-        );
-      }
-
-      if (program && college && program.college_id !== college.id) {
-        throw new Error(
-          `Row ${rowNumber}: program does not belong to the selected college`
-        );
-      }
-
-      if (program && degree && program.degree_level_id !== degree.id) {
-        throw new Error(
-          `Row ${rowNumber}: program does not belong to the selected degree`
-        );
-      }
-
-      const existingFromEmail = email
-  ? existingByEmail.get(email)
-  : undefined;
-
-const existingFromReference =
-  existingByReference.get(reference);
-
-if (
-  existingFromEmail &&
-  existingFromReference &&
-  existingFromEmail.id !== existingFromReference.id
-) {
-  throw new Error(
-    `Row ${rowNumber}: email '${email}' belongs to reference ` +
-      `'${existingFromEmail.reference_number}', while reference ` +
-      `'${reference}' belongs to another person. Correct the CSV or existing record.`
-  );
-}
-
-const existingPerson =
-  existingFromEmail ??
-  existingFromReference ??
-  null;
-
-let profileId: string | null =
-  existingPerson?.profile_id ?? null;
-
-
-      if (isYes(row.create_login)) {
-        if (!email) {
-          throw new Error(
-            `Row ${rowNumber}: email is required when create_login=yes`
-          );
+        if (!fullName) {
+          throw new Error("full_name is required");
         }
 
-        if (!row.password || String(row.password).length < 8) {
-          throw new Error(
-            `Row ${rowNumber}: password must be at least 8 characters`
-          );
+        if (!VALID_TYPES.includes(personType)) {
+          throw new Error(`invalid person_type '${personType}'`);
         }
 
-        if (!profileId) {
-          const created = await admin.auth.admin.createUser({
-            email,
-            password: String(row.password),
-            email_confirm: true,
-            user_metadata: { full_name: row.full_name },
-          });
+        if (!VALID_ROLES.includes(primaryRole)) {
+          throw new Error(`invalid role '${primaryRole}'`);
+        }
 
-          if (created.error) {
-            // Existing Auth user should not cause the whole row to be skipped.
-            if (created.error.message.toLowerCase().includes("already")) {
-              const users = await admin.auth.admin.listUsers({
-                page: 1,
-                perPage: 1000,
-              });
+        if (email && seenEmails.has(email)) {
+          skipped += 1;
+          continue;
+        }
 
-              if (users.error) {
-                throw new Error(
-                  `Row ${rowNumber}: ${users.error.message}`
-                );
-              }
+        if (seenReferences.has(reference)) {
+          skipped += 1;
+          continue;
+        }
 
-              const authUser = (users.data.users as any[]).find(
-                (user: any) =>
-                 String(user.email ?? "").trim().toLowerCase() === email
-               );
+        if (email) seenEmails.add(email);
+        seenReferences.add(reference);
 
-              if (!authUser) {
-                throw new Error(
-                  `Row ${rowNumber}: authentication user already exists but could not be resolved`
-                );
-              }
+        const additionalRoles = normalizeText(row.additional_roles)
+          .split(/[|;]/)
+          .map((role) => role.trim().toLowerCase())
+          .filter(Boolean);
 
-              profileId = authUser.id;
-            } else {
-              throw new Error(
-                `Row ${rowNumber}: ${created.error.message}`
-              );
-            }
-          } else {
-            profileId = created.data.user.id;
+        for (const role of additionalRoles) {
+          if (!VALID_ROLES.includes(role)) {
+            throw new Error(`invalid additional role '${role}'`);
           }
         }
 
-        const profileUpsert = await admin.from("profiles").upsert({
-          id: profileId,
+        const collegeName = normalizeText(row.college).toLowerCase();
+        const degreeName = normalizeText(row.degree).toLowerCase();
+        const programName = normalizeText(row.program).toLowerCase();
+
+        const college = collegeName ? collegeMap.get(collegeName) : null;
+        const degree = degreeName ? degreeMap.get(degreeName) : null;
+        const program = programName ? programMap.get(programName) : null;
+
+        if (collegeName && !college) {
+          throw new Error(
+            `college '${row.college}' does not match Settings`
+          );
+        }
+
+        if (degreeName && !degree) {
+          throw new Error(
+            `degree '${row.degree}' does not match Settings`
+          );
+        }
+
+        if (programName && !program) {
+          throw new Error(
+            `program '${row.program}' does not match Settings`
+          );
+        }
+
+        if (program && college && program.college_id !== college.id) {
+          throw new Error(
+            "program does not belong to the selected college"
+          );
+        }
+
+        if (program && degree && program.degree_level_id !== degree.id) {
+          throw new Error(
+            "program does not belong to the selected degree"
+          );
+        }
+
+        const existingFromEmail = email
+          ? existingByEmail.get(email)
+          : undefined;
+        const existingFromReference = existingByReference.get(reference);
+
+        if (
+          existingFromEmail &&
+          existingFromReference &&
+          existingFromEmail.id !== existingFromReference.id
+        ) {
+          throw new Error(
+            `email '${email}' belongs to reference ` +
+              `'${existingFromEmail.reference_number}', while reference ` +
+              `'${reference}' belongs to another person`
+          );
+        }
+
+        const existingPerson =
+          existingFromEmail ?? existingFromReference ?? null;
+
+        let profileId: string | null =
+          existingPerson?.profile_id ?? null;
+
+        if (isYes(row.create_login)) {
+          if (!email) {
+            throw new Error(
+              "email is required when create_login=yes"
+            );
+          }
+
+          if (!row.password || String(row.password).length < 8) {
+            throw new Error(
+              "password must be at least 8 characters"
+            );
+          }
+
+          if (!profileId) {
+            const created = await admin.auth.admin.createUser({
+              email,
+              password: String(row.password),
+              email_confirm: true,
+              user_metadata: { full_name: fullName },
+            });
+
+            if (created.error) {
+              if (
+                created.error.message.toLowerCase().includes("already")
+              ) {
+                const authUser = await findAuthUserByEmail(admin, email);
+
+                if (!authUser) {
+                  throw new Error(
+                    "authentication user already exists but could not be resolved"
+                  );
+                }
+
+                profileId = authUser.id;
+              } else {
+                throw created.error;
+              }
+            } else {
+              profileId = created.data.user.id;
+            }
+          }
+
+          const profileUpsert = await admin.from("profiles").upsert(
+            {
+              id: profileId,
+              organization_id: profile.organization_id,
+              email,
+              full_name: fullName,
+              role: primaryRole,
+              person_type: personType,
+              reference_number: reference,
+              phone: normalizeText(row.phone) || null,
+              active: true,
+            },
+            { onConflict: "id" }
+          );
+
+          if (profileUpsert.error) {
+            throw profileUpsert.error;
+          }
+        }
+
+        const payload = {
           organization_id: profile.organization_id,
+          profile_id: profileId,
           email,
-          full_name: row.full_name,
-          role: row.role,
-          person_type: row.person_type,
+          full_name: fullName,
+          person_type: personType,
+          role: primaryRole,
           reference_number: reference,
-          phone: row.phone || null,
+          college_id: college?.id || null,
+          degree_level_id:
+            personType === "student" ? degree?.id || null : null,
+          program_id:
+            personType === "student" ? program?.id || null : null,
+          phone: normalizeText(row.phone) || null,
+          gender: normalizeText(row.gender) || null,
           active: true,
-        });
+        };
 
-        if (profileUpsert.error) {
-          throw new Error(
-            `Row ${rowNumber}: ${profileUpsert.error.message}`
-          );
-        }
-      }
+        let savedPerson: ExistingPerson;
 
-      const payload = {
-        organization_id: profile.organization_id,
-        profile_id: profileId,
-        email,
-        full_name: row.full_name,
-        person_type: row.person_type,
-        role: row.role,
-        reference_number: reference,
-        college_id: college?.id || null,
-        degree_level_id:
-          row.person_type === "student" ? degree?.id || null : null,
-        program_id:
-          row.person_type === "student" ? program?.id || null : null,
-        phone: row.phone || null,
-        gender: row.gender || null,
-        active: true,
-      };
+        if (existingPerson) {
+          const update = await admin
+            .from("people_directory")
+            .update(payload)
+            .eq("id", existingPerson.id)
+            .select("id,profile_id,email,reference_number")
+            .single();
 
-      let savedPerson: ExistingPerson;
+          if (update.error) throw update.error;
 
-if (existingPerson) {
-  const update = await admin
-    .from("people_directory")
-    .update(payload)
-    .eq("id", existingPerson.id)
-    .select("id,profile_id,email,reference_number")
-    .single();
+          savedPerson = update.data as ExistingPerson;
+          updated += 1;
+        } else {
+          const insert = await admin
+            .from("people_directory")
+            .insert(payload)
+            .select("id,profile_id,email,reference_number")
+            .single();
 
-  if (update.error) {
-    throw new Error(
-      `Row ${rowNumber}: ${update.error.message}`
-    );
-  }
+          if (insert.error) throw insert.error;
 
-  savedPerson = update.data as ExistingPerson;
-  updated += 1;
-} else {
-  const insert = await admin
-    .from("people_directory")
-    .insert(payload)
-    .select("id,profile_id,email,reference_number")
-    .single();
-
-  if (insert.error) {
-    throw new Error(
-      `Row ${rowNumber}: ${insert.error.message}`
-    );
-  }
-
-  savedPerson = insert.data as ExistingPerson;
-  inserted += 1;
-}
-
-/*
- * Keep the in-memory indexes synchronized so duplicate rows later
- * in the same CSV are updated instead of inserted.
- */
-const savedEmail = String(savedPerson.email ?? "")
-  .trim()
-  .toLowerCase();
-
-const savedReference = String(
-  savedPerson.reference_number ?? ""
-).trim();
-
-if (savedEmail) {
-  existingByEmail.set(savedEmail, savedPerson);
-}
-
-if (savedReference) {
-  existingByReference.set(savedReference, savedPerson);
-}
-
-      if (profileId) {
-        const allRoles = [
-          row.role,
-          ...additionalRoles.filter(
-            (role: string) => role !== row.role
-          ),
-        ];
-
-        const deleteRoles = await admin
-          .from("profile_roles")
-          .delete()
-          .eq("profile_id", profileId);
-
-        if (deleteRoles.error) {
-          throw new Error(
-            `Row ${rowNumber}: ${deleteRoles.error.message}`
-          );
+          savedPerson = insert.data as ExistingPerson;
+          inserted += 1;
         }
 
-        const rolesInsert = await admin.from("profile_roles").insert(
-          allRoles.map((role: string) => ({
-            organization_id: profile.organization_id,
-            profile_id: profileId,
-            role,
-          }))
+        const savedEmail = normalizeEmail(savedPerson.email);
+        const savedReference = normalizeText(
+          savedPerson.reference_number
         );
 
-        if (rolesInsert.error) {
-          throw new Error(
-            `Row ${rowNumber}: ${rolesInsert.error.message}`
-          );
+        if (savedEmail) existingByEmail.set(savedEmail, savedPerson);
+        if (savedReference) {
+          existingByReference.set(savedReference, savedPerson);
         }
+
+        if (profileId) {
+          const allRoles = Array.from(
+            new Set([primaryRole, ...additionalRoles])
+          );
+
+          const deleteRoles = await admin
+            .from("profile_roles")
+            .delete()
+            .eq("profile_id", profileId);
+
+          if (deleteRoles.error) throw deleteRoles.error;
+
+          if (allRoles.length > 0) {
+            const rolesInsert = await admin
+              .from("profile_roles")
+              .insert(
+                allRoles.map((role) => ({
+                  organization_id: profile.organization_id,
+                  profile_id: profileId,
+                  role,
+                }))
+              );
+
+            if (rolesInsert.error) throw rolesInsert.error;
+          }
+        }
+      } catch (rowError: any) {
+        rowErrors.push({
+          row: rowNumber,
+          message: rowError?.message || "Unknown row import error",
+        });
       }
     }
 
     return NextResponse.json({
-      ok: true,
+      ok: rowErrors.length === 0,
+      imported: inserted + updated,
       inserted,
       updated,
       skipped,
-      processed: inserted + updated + skipped,
+      failed: rowErrors.length,
+      processed: inserted + updated + skipped + rowErrors.length,
+      errors: rowErrors.slice(0, 50),
+      message:
+        `Import completed: ${inserted} inserted, ` +
+        `${updated} updated, ${skipped} skipped, ` +
+        `${rowErrors.length} failed.`,
     });
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || "Import failed" },
+      { error: error?.message || "Import failed" },
       { status: 400 }
     );
   }
