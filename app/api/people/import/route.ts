@@ -471,6 +471,76 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        const registrationStatus = normalizeText(
+          row.registration_status
+        ).toLowerCase();
+
+        const paymentStatus = normalizeText(
+          row.payment_status
+        ).toLowerCase();
+
+        const fittingStatus = normalizeText(
+          row.fitting_status
+        ).toLowerCase();
+
+        const collectedStatus = normalizeText(
+          row.collected_status
+        ).toLowerCase();
+
+        const photoStatus = normalizeText(
+          row.photo_status
+        ).toLowerCase();
+
+        if (
+          registrationStatus &&
+          !["pending", "registered"].includes(registrationStatus)
+        ) {
+          throw new Error(
+            `invalid registration_status '${registrationStatus}'. ` +
+              "Allowed values: pending, registered"
+          );
+        }
+
+        if (
+          paymentStatus &&
+          !["pending", "paid"].includes(paymentStatus)
+        ) {
+          throw new Error(
+            `invalid payment_status '${paymentStatus}'. ` +
+              "Allowed values: pending, paid"
+          );
+        }
+
+        if (
+          fittingStatus &&
+          !["pending", "fitted"].includes(fittingStatus)
+        ) {
+          throw new Error(
+            `invalid fitting_status '${fittingStatus}'. ` +
+              "Allowed values: pending, fitted"
+          );
+        }
+
+        if (
+          collectedStatus &&
+          !["pending", "collected"].includes(collectedStatus)
+        ) {
+          throw new Error(
+            `invalid collected_status '${collectedStatus}'. ` +
+              "Allowed values: pending, collected"
+          );
+        }
+
+        if (
+          photoStatus &&
+          !["pending", "photographed", "delivered"].includes(photoStatus)
+        ) {
+          throw new Error(
+            `invalid photo_status '${photoStatus}'. ` +
+              "Allowed values: pending, photographed, delivered"
+          );
+        }
+
         const payload = {
           organization_id: profile.organization_id,
           profile_id: profileId,
@@ -486,6 +556,24 @@ export async function POST(req: NextRequest) {
             personType === "student" ? program?.id || null : null,
           phone: normalizeText(row.phone) || null,
           gender: normalizeText(row.gender) || null,
+
+          // Empty CSV cells preserve the current database value.
+          ...(registrationStatus
+            ? { registration_status: registrationStatus }
+            : {}),
+          ...(paymentStatus
+            ? { payment_status: paymentStatus }
+            : {}),
+          ...(fittingStatus
+            ? { fitting_status: fittingStatus }
+            : {}),
+          ...(collectedStatus
+            ? { collected_status: collectedStatus }
+            : {}),
+          ...(photoStatus
+            ? { photo_status: photoStatus }
+            : {}),
+
           active: true,
         };
 
