@@ -302,6 +302,28 @@ export async function POST(req: NextRequest) {
           throw new Error(`invalid role '${primaryRole}'`);
         }
 
+        if (personType === "student") {
+          if (!email) {
+            throw new Error("email is required for students");
+          }
+
+          if (!normalizeText(row.college)) {
+            throw new Error("college is required for students");
+          }
+
+          if (!normalizeText(row.degree)) {
+            throw new Error("degree is required for students");
+          }
+
+          if (!normalizeText(row.program)) {
+            throw new Error("program is required for students");
+          }
+
+          if (!normalizeText(row.gender)) {
+            throw new Error("gender is required for students");
+          }
+        }
+
         if (email && seenEmails.has(email)) {
           skipped += 1;
           continue;
