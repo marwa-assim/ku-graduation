@@ -79,11 +79,42 @@ async function saveZone(fd:FormData,id?:string){
  const eventId=uuid(fd.get("event_id"));const zoneId=id?uuid(id):null;
  if(!eventId)fail("/dashboard/seats","Please select a valid event");
  if(id&&!zoneId)fail("/dashboard/seats","Invalid seating zone ID");
- const payload={organization_id:p.organization_id,event_id:eventId,name:String(fd.get("name")||"").trim(),zone_type:String(fd.get("zone_type")||"free_guest"),rows_count:Number(fd.get("rows_count")||0),columns_count:Number(fd.get("columns_count")||0),color:String(fd.get("color")||"#D4A843"),price_bhd:Number(fd.get("price_bhd")||0),display_order:Number(fd.get("display_order")||0),college_id:uuid(fd.get("college_id")),seat_prefix:String(fd.get("seat_prefix")||"S").trim(),aisle_columns:aisles(fd.get("aisle_columns")),stage_side:String(fd.get("stage_side")||"center")};
- if(!payload.name||payload.rows_count<1||payload.columns_count<1)fail("/dashboard/seats","Zone name, rows and columns are required");
- const result=zoneId?await s.from("seating_zones").update(payload).eq("id",zoneId).eq("organization_id",p.organization_id).select("id").single():await s.from("seating_zones").insert(payload).select("id").single();
+ const zoneType=String(fd.get("zone_type")||"free_guest");
+ const stageSide=String(fd.get("stage_side")||"center");
+ if(zoneType==="stage"&&!(["left","center","right","full"].includes(stageSide)))fail("/dashboard/seats","Invalid graduate stage layout");
+ const payload={organization_id:p.organization_id,event_id:eventId,name:String(fd.get("name")||"").trim(),zone_type:zoneType,rows_count:Number(fd.get("rows_count")||0),columns_count:Number(fd.get("columns_count")||0),color:String(fd.get("color")||"#D4A843"),price_bhd:Number(fd.get("price_bhd")||0),display_order:Number(fd.get("display_order")||0),college_id:uuid(fd.get("college_id")),seat_prefix:String(fd.get("seat_prefix")||"S").trim(),aisle_columns:aisles(fd.get("aisle_columns")),stage_side:zoneType==="stage"?stageSide:(stageSide==="full"?"center":stageSide)};
+ if(!payload.name||!Number.isInteger(payload.rows_count)||!Number.isInteger(payload.columns_count)||payload.rows_count<1||payload.columns_count<1||payload.rows_count>200||payload.columns_count>200)fail("/dashboard/seats","Zone name, rows and columns must be valid (1-200)");
+ if(payload.aisle_columns.some(x=>x>=payload.columns_count))fail("/dashboard/seats","Aisles must be after a seat before the last column");
+ let regenerate=true;
+ if(zoneId){
+  const {data:old,error:oldError}=await s.from("seating_zones").select("*").eq("id",zoneId).eq("organization_id",p.organization_id).eq("event_id",eventId).single();
+  if(oldError||!old)fail("/dashboard/seats","Seating zone not found in this event");
+  if(old.zone_type==="stage"&&zoneType==="stage"){
+   const structuralChange=Number(old.rows_count)!==payload.rows_count||Number(old.columns_count)!==payload.columns_count||String(old.seat_prefix||"S")!==payload.seat_prefix;
+   if(structuralChange){
+    const {data:zoneSeats,error:seatError}=await s.from("seats").select("id,status").eq("zone_id",zoneId).eq("organization_id",p.organization_id);
+    if(seatError)fail("/dashboard/seats",seatError.message);
+    const ids=(zoneSeats||[]).map(x=>x.id);
+    if(ids.length){
+     if(zoneSeats!.some(x=>x.status!=="available"))fail("/dashboard/seats","Stage zone has occupied or held seats. Structural changes are blocked to protect bookings.");
+     for(let i=0;i<ids.length;i+=100){
+      const chunk=ids.slice(i,i+100);
+      const [tickets,links,items]=await Promise.all([
+       s.from("tickets").select("id",{count:"exact",head:true}).in("seat_id",chunk),
+       s.from("booking_seats").select("seat_id",{count:"exact",head:true}).in("seat_id",chunk),
+       s.from("booking_items").select("seat_id",{count:"exact",head:true}).in("seat_id",chunk)
+      ]);
+      if(tickets.error||links.error||items.error)fail("/dashboard/seats","Could not verify stage seat reservations; no changes saved");
+      if((tickets.count||0)+(links.count||0)+(items.count||0)>0)fail("/dashboard/seats","Stage zone has ticket or booking history. Structural changes are blocked.");
+     }
+    }
+   }else regenerate=false;
+  }
+ }
+ const result=zoneId?await s.from("seating_zones").update(payload).eq("id",zoneId).eq("event_id",eventId).eq("organization_id",p.organization_id).select("id").single():await s.from("seating_zones").insert(payload).select("id").single();
  if(result.error)fail("/dashboard/seats",result.error.message);const savedId=zoneId||result.data?.id;if(!savedId)fail("/dashboard/seats","Zone was saved but no ID was returned");
- const {error}=await s.rpc("generate_zone_seats",{p_zone_id:savedId});if(error)fail("/dashboard/seats",error.message);done("/dashboard/seats",zoneId?"Seating zone updated and regenerated successfully":"Seating zone created successfully")
+ if(regenerate){const {error}=await s.rpc("generate_zone_seats",{p_zone_id:savedId});if(error)fail("/dashboard/seats",error.message)}
+ done("/dashboard/seats",zoneId?(regenerate?"Seating zone updated and regenerated successfully":"Graduate stage layout updated without regenerating seats"):"Seating zone created successfully")
 }
 export async function createZone(fd:FormData){return saveZone(fd)}export async function updateZone(fd:FormData){return saveZone(fd,text(fd.get("id"))||undefined)}
 export async function regenerateZone(fd:FormData){const s=await createClient();await requireProfile(["admin","land"]);const zoneId=String(fd.get("id"));const {error}=await s.rpc("generate_zone_seats",{p_zone_id:zoneId});if(error)fail("/dashboard/seats",error.message);const{data:z}=await s.from("seating_zones").select("event_id").eq("id",zoneId).single();if(z?.event_id)await s.rpc("reconcile_event_seat_statuses",{p_event_id:z.event_id});done("/dashboard/seats","Seats regenerated and stale status corrected")}
